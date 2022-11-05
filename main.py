@@ -1,21 +1,43 @@
+# Author: Malik Samath
+# GitHub: https://github.com/Kilamalik
+
+# ------------------------------------------------------------------#
+# ------------------------------------------------------------------#
+# ------------------------------------------------------------------#
+# ------------------------------------------------------------------#
+
 # import json
 # import re
 from openpyxl import Workbook
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from bs4 import Comment
 
 
-def main():
+def main(section):
     with open('timetable.html', 'r') as content:
         soup = BeautifulSoup(content, 'html.parser')
 
     wb = Workbook()
     ws = wb.active
-    dataTemp = ['startTime', 'endTime', 'dayOfTheWeek', 'module', 'venue', 'group']
+    dataTemp = ['startTime', 'endTime', 'dayOfTheWeek', 'module', 'venue', 'group', 'batch']
     ws.append(dataTemp)
 
+    # these new tags are created to replace the span comments with the td tags
+    # this is done so that the day counter can increment. It does not increment when there are span comments and hence, outputs wrong days for the slots
+    myTag = soup.new_tag("td")
+    myTag.string = "---"
+
+    myTag2 = soup.new_tag("td")
+    myTag2.string = "---"
+
+    myTag3 = soup.new_tag("td")
+    myTag3.string = "---"
+
+    myTag4 = soup.new_tag("td")
+    myTag4.string = "---"
+
     # loop through all the timetable only tables
-    tables = soup.find_all('table', class_=['odd_table', 'even_table'])
+    tables = soup.find_all('table', class_=[section])
     for table in tables:
         thead = table.thead
         tbody = table.tbody
@@ -36,10 +58,6 @@ def main():
         for row in rows:
             row_Time = row.th.text
 
-            # gets the td tags which are the columns of the selected row
-            # recursive=False prevents the loop from accessing the desired tags within inner tables
-            row_tdList = row.find_all('td', recursive=False)
-
             spanned = 0  # holds the index to the nextToComment array
             nextToComment = []  # holds whats next to the comment in the row to be compared to data variable in the coming for loop
             previousToComment = []  # holds whats previous to the comment in the row to be compared to data variable in the coming for loop
@@ -47,43 +65,32 @@ def main():
 
             # finding span comments within the rows column to be able to identify its location
             comments = row.find_all(text=lambda text: isinstance(text, Comment))
-            for comment in comments:
-                nextToComment.append(
-                    comment.findNext())  # stores whatever td tag is next to the comment to be used to check what td tag will be affected
+
+            # for every comment replace it with the td tag.
+            # comments array contains all the comments of the current row.
+            # each comment is replaced with a different tag because using same tag for each comment does not work.
+            # the duplicate tags get ignored and the day increment fails to work then.
+            # there will be max 5 span comments in a row but a 5th tag is not needed since it would move on the next row by then
+            for index, comment in enumerate(comments):
                 previousToComment.append(comment.findPrevious())
+                if index == 0:
+                    comment.replaceWith(myTag)
+                elif index == 1:
+                    comment.replaceWith(myTag2)
+                elif index == 2:
+                    comment.replaceWith(myTag3)
+                elif index == 3:
+                    comment.replaceWith(myTag4)
 
-            # increments dayIndex by 1 if span is at the first column of the row (monday column)
-            # this was previously handled by the 'if spanned <= len(nextToComment)-1 and data == nextToComment[spanned]' condition but after-
-            # adding the 'and row_tdList[index-1] == previousToComment[spanned]' condition it no longer works if span is at the first column
-            # hence, this is created
-            if previousToComment != [] and previousToComment[0].name == 'th' and previousToComment[0]['class'] == [
-                'yAxis']:
-                dayIndex = dayIndex + 1
-                spanned = spanned + 1
+            # gets the td tags which are the columns of the selected row
+            # recursive=False prevents the loop from accessing the desired tags within inner tables
+            row_tdList = row.find_all(['td'], recursive=False)
 
-            for index, data in enumerate(
-                    row_tdList):  # Enumeration and index not needed atm. Index (not used atm) only works if data is enumerated.
-                ''' The (spanned <= len(nextToComment)-1) is to prevent index out of range errors,
-                    data == nextToComment[spanned] is to check if the current td in data variable is equal to the array value
-                '''
+            # enumeration and index not needed atm. Index (not used atm) only works if data is enumerated.
+            for index, data in enumerate(row_tdList):
 
-                # to solve double spanned column issues
-                # if(spanned <= len(nextToComment)-1) and row_Time == '14:30':
-                # print('Data - ', data, 'Next Comment - ', nextToComment[spanned], '$$$$$$', data == nextToComment[spanned], row_tdList[index-1] == previousToComment[spanned])
-
-                # if true, i.e., the current data item matches the item that is next to the span comment and the-
-                # previous data item matches the item that is previous to the span comment,
-                # then this td tags day will be incremented to match its correct location in the column
-                # this is done because the days are not in sync with the td (slot) if a span comment occurs
-                if spanned <= len(nextToComment) - 1 and data == nextToComment[spanned] and row_tdList[index - 1] == \
-                        previousToComment[spanned]:
-                    dayIndex = dayIndex + 1
-                    slotDay = thead_tr_days.find_all('th')[
-                        dayIndex].text  # The day is obtained by first getting the tr that contains all the days in the row, and then getting the th tag by index
-                    spanned = spanned + 1
-                else:
-                    slotDay = thead_tr_days.find_all('th')[
-                        dayIndex].text  # The day is obtained by first getting the tr that contains all the days in the row, and then getting the th tag by index
+                # The day is obtained by first getting the tr that contains all the days in the row, and then getting the th tag by index
+                slotDay = thead_tr_days.find_all('th')[dayIndex].text
 
                 # Gathering data of each slot
                 if data.table:
@@ -107,7 +114,7 @@ def main():
 
                     # Storing the data of the first slot
                     dataTemp = [row_Time, sessionEndTime, slotDay, data.table_tr_firstSession, data.table_tr_firstVenue,
-                                data.table_tr_firstSubBatch]
+                                data.table_tr_firstSubBatch, thead_tr_batch]
                     ws.append(dataTemp)
 
                     # this condition is in place due to some tabled cells not having a second column
@@ -122,7 +129,7 @@ def main():
 
                         # Storing the data of the second slot
                         dataTemp = [row_Time, sessionEndTime, slotDay, data.table_tr_secondSession,
-                                    data.table_tr_secondVenue, data.table_tr_secondSubBatch]
+                                    data.table_tr_secondVenue, data.table_tr_secondSubBatch, thead_tr_batch]
                         ws.append(dataTemp)
 
                 elif data.text == '---' or data.text == '-x-':
@@ -156,12 +163,12 @@ def main():
                             normalTd_session = normalTd[2]  # The module is the in the 2nd index of this array
                             normalTd_venue = normalTd[4]  # The venue is in the 4th index of this array
                             dataTemp = [row_Time, sessionEndTime, slotDay, normalTd_session, normalTd_venue,
-                                        normalTd_batch]
+                                        normalTd_batch, thead_tr_batch]
                         else:
                             normalTd_session = normalTd[0]  # The module is in the 0th index of this array
                             normalTd_venue = normalTd[4]  # The venue is in the 4th index of this array
                             dataTemp = [row_Time, sessionEndTime, slotDay, normalTd_session, normalTd_venue,
-                                        thead_tr_batch]
+                                        thead_tr_batch, thead_tr_batch]
 
                         ws.append(dataTemp)
 
@@ -169,13 +176,30 @@ def main():
                         normalTd_batch = normalTd[0]  # The batch info is in the 0th index of this array
                         normalTd_session = normalTd[2]  # The module is in the 2nd index of this array
                         normalTd_venue = normalTd[6]  # The venue is in the 4th index of this array
-                        dataTemp = [row_Time, sessionEndTime, slotDay, normalTd_session, normalTd_venue, normalTd_batch]
+                        dataTemp = [row_Time, sessionEndTime, slotDay, normalTd_session, normalTd_venue, normalTd_batch,
+                                    thead_tr_batch]
                         ws.append(dataTemp)
 
                 dayIndex = dayIndex + 1
-
-    wb.save('Timetable.xlsx')
+    if section == 'odd_table':
+        wb.save('Timetable1.xlsx')
+    elif section == 'even_table':
+        wb.save('Timetable2.xlsx')
 
 
 if __name__ == "__main__":
-    main()
+    choice = input(
+        "**********Please ensure the HTML timetable file is renamed to timetable.html and is within the same directory as this script*********\n" +
+        "The timetable.html will have to be scraped into two separate excel files\n" +
+        "Both files will be needed to be fed separately into the initial configuration of the IAS system\n" +
+        "Enter anything to proceed:")
+
+    print("\nGathering the first half into Timetable1.xlsx\n")
+
+    main('odd_table')
+
+    print("\nGathering the second half into Timetable2.xlsx\n")
+
+    main('even_table')
+
+    input("\nEnter anything to close.")
